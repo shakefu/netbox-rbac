@@ -1,14 +1,22 @@
 import ldap
+import logging
 
 from .. import auth
 
-# Required when using self-signed certificates.
-ldap.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
+
+# TODO(shakefu): Move this into the plugin configuration
+USE_TLS = False
+
+
+# TODO(shakefu): Move this to a logging module for better DRY
+log = logging.getLogger("netbox_rbac")
 
 
 class Driver:
     def __init__(self, config):
         self.config = config
+        # TODO(shakefu): Remove this, it's insanely noisy
+        # log.debug(f"New Driver config:\n{self.config}")
 
     def session(self):
         return Session(**self.config)
@@ -16,19 +24,40 @@ class Driver:
 
 class Session:
     def __init__(self, domain, search, server):
+        log.debug(f"New Session for {domain}")
+
         self.domain = domain
         self.search = search
 
         # Cache group membership to avoid repeated lookups.
         self.groups = {}
 
+        # TBD(shakefu): Move this client out of the Session? Is `ldap`
+        # threadsafe?
+
         # Connect, and ensure the connection is encrypted.
         self.client = ldap.initialize(server)
-        self.client.start_tls_s()
+
+        # Required when using self-signed certificates.
+        if USE_TLS:
+            log.debug("Initializing TLS Session")
+            self.client.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, ldap.OPT_X_TLS_NEVER)
+            self.client.start_tls_s()
 
     def authenticate(self, username, password):
         # Authenticate as the user.
-        self.client.simple_bind_s(self.domain + "\\" + username, password)
+
+        # XXX(shakefu): AD style login DN?
+        # who = self.domain + "\\" + username
+
+        domain = ','.join([f"DC={c}" for c in self.domain.split('.')])
+        who = f"CN={username},{domain}"
+
+        # TODO(shakefu): Remove password logging
+        log.debug(f"Authenticating as '{who}' with '{password}'")
+
+        # self.client.simple_bind_s(self.domain + "\\" + username, password)
+        self.client.simple_bind_s(who, password)
 
         # Retrieve user attributes.
         result = self.lookup("user", username)

@@ -1,3 +1,4 @@
+import logging
 import cachetools
 import django.conf
 
@@ -5,6 +6,9 @@ from django.core.exceptions import PermissionDenied
 from django.contrib.auth.models import User
 
 from . import auth, models, rule
+
+# TODO(shakefu): Centralize logging
+log = logging.getLogger('netbox_rbac')
 
 # Django creates an instance of Backend for every permission check. Since
 # loading rules is somewhat expensive, we memoize the configuration items, as
@@ -32,7 +36,8 @@ class Backend:
 
         try:
             account = sn.authenticate(username, password)
-        except:
+        except Exception as err:
+            log.exception("Authentication failed with error.")
             raise PermissionDenied
 
         # Credentials are valid. Ensure the user object exists.
